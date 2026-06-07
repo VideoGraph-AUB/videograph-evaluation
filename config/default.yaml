@@ -1,0 +1,52 @@
+# VideoGraph Evaluation Configuration
+
+openai:
+  text_model: "gpt-4o"
+  vision_model: "gpt-4o"
+  transcription_model: "whisper-1"
+  embedding_model: "text-embedding-3-small"
+  temperature: 0.0
+
+video_ingestion:
+  scene_detection:
+    adaptive_threshold: 0.5
+    min_scene_len_s: 2.5
+    window_width: 2
+    show_progress: false
+    min_scene_duration_s: 0.05
+  clip_extraction:
+    video_codec: "libx264"
+    audio_codec: "aac"
+    codec_preset: "ultrafast"
+    min_scene_duration_s: 0.05
+    ffmpeg_timeout_s: 1800
+  adaptive_keyframes:
+    short_clip_max_s: 8.0
+    short_clip_frames: 1
+    medium_clip_max_s: 20.0
+    medium_clip_frames: 2
+    long_clip_frames: 3
+
+transcription:
+  language: null
+  timestamp_granularity: "segment"
+
+visual:
+  ocr_enabled: true
+  vision_prompt_style: "detailed"
+  append_state_change_to_description: false
+
+graph:
+  temperature: 0.3
+  temporal_window: 5
+  build_topic_nodes: true
+  build_entity_nodes: true
+
+retrieval:
+  top_k: 7
+  hop_expansion: 1
+  hybrid_alpha: 0.7
+
+processing:
+  max_parallel_vision: 5
+  max_parallel_embeddings: 10
