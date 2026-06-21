@@ -67,6 +67,38 @@ class GraphAnswerSession:
         self.temperature = temperature
         self.dataset = dataset
 
+    def retrieve(self, question: str) -> list:
+        """
+        Run retrieval only — no LLM call.
+
+        Returns the same evidence_nodes list that answer() would include,
+        but skips the LLM.  Use this for grounding-metric sweeps where QA
+        accuracy is not needed (saves ~$0.01/question on gpt-4o).
+        """
+        results, _ = self.retriever.retrieve(
+            question,
+            self.graph,
+            top_k=self.top_k,
+            hop_expansion=self.hop_expansion,
+            include_visual=True,
+            embeddings_path=self.embeddings_path if self.embeddings_path.exists() else None,
+            allowed_node_types=self.allowed_node_types,
+            use_state_change_channel=self.use_state_change_channel,
+            expansion_edge_types=self.expansion_edge_types,
+        )
+        return [
+            {
+                "node_id":          r.node_id,
+                "node_type":        r.node_type,
+                "start":            r.start,
+                "end":              r.end,
+                "score":            r.score,
+                "is_expanded":      r.is_expanded,
+                "expansion_source": r.expansion_source,
+            }
+            for r in results
+        ]
+
     def answer(
         self,
         question: str,
@@ -85,6 +117,7 @@ class GraphAnswerSession:
                 "failure_reason": "invalid_options",
                 "retrieval_context": "",
                 "qa_user_prompt": "",
+                "evidence_nodes": [],
             }
 
         results, subgraph = self.retriever.retrieve(
@@ -109,6 +142,18 @@ class GraphAnswerSession:
                 "failure_reason": "no_context",
                 "retrieval_context": context,
                 "qa_user_prompt": "",
+                "evidence_nodes": [
+                    {
+                        "node_id": r.node_id,
+                        "node_type": r.node_type,
+                        "start": r.start,
+                        "end": r.end,
+                        "score": r.score,
+                        "is_expanded": r.is_expanded,
+                        "expansion_source": r.expansion_source,
+                    }
+                    for r in results
+                ],
             }
 
         options_text = "\n".join(f"{i}: {opt}" for i, opt in enumerate(options))
@@ -149,6 +194,18 @@ Answer ({answer_range}):"""
             "failure_reason": None,
             "retrieval_context": context,
             "qa_user_prompt": user_prompt,
+            "evidence_nodes": [
+                {
+                    "node_id": r.node_id,
+                    "node_type": r.node_type,
+                    "start": r.start,
+                    "end": r.end,
+                    "score": r.score,
+                    "is_expanded": r.is_expanded,
+                    "expansion_source": r.expansion_source,
+                }
+                for r in results
+            ],
         }
 
 
