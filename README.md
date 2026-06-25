@@ -196,6 +196,129 @@ Results are written under `--output-dir`:
   report.md                      # human-readable summary report
 ```
 
+## NExT-GQA Grounding Evaluation
+
+`run_nextgqa_grounding.py` evaluates temporal grounding on NExT-GQA by comparing
+flat retrieval against graph-hop retrieval.
+
+Three conditions are evaluated:
+
+- **flat** — seed-only retrieval, no graph traversal (`hop_expansion=0`)
+- **graph-1** — seeds + 1-hop neighbours (`hop_expansion=1`)
+- **graph-2** — seeds + 2-hop neighbourhood (`hop_expansion=2`)
+
+### Data layout
+
+Place the NExT-GQA annotation files under `--data-dir`:
+
+```text
+data/
+  NExT-GQA/
+    val.csv
+    test.csv
+    gsub_val.json
+    gsub_test.json
+```
+
+`val.csv` / `test.csv` are the NExT-GQA question splits. The `answer` column is
+answer **text** (not a 0-based index); the script matches it against `a0`–`a4` to
+resolve the correct option.
+`gsub_val.json` / `gsub_test.json` contain the gold temporal grounding intervals.
+
+### Graph layout
+
+`--graphs-dir` must point to a directory with one sub-folder per video ID, each
+containing `graph.json`. Graphs are produced by the main pipeline
+(`videograph_eval.run --datasets nextqa-val`):
+
+```text
+# val split
+results/v1/graphs/nextqa-val/
+  <video_id>/
+    graph.json
+
+# test split
+results/v1_test/graphs/nextqa-test/
+  <video_id>/
+    graph.json
+```
+
+### Example command
+
+Run from the `videograph-evaluation/` directory using the project venv:
+
+```bash
+python run_nextgqa_grounding.py \
+  --split val \
+  --graphs-dir results/v1/graphs/nextqa-val \
+  --data-dir data \
+  --output-dir results/nextgqa_val \
+  --retrieval-only \
+  --verify-seed-order
+```
+
+Smoke-test with a small subset and `--top-k` override:
+
+```bash
+python run_nextgqa_grounding.py \
+  --split val \
+  --graphs-dir results/v1/graphs/nextqa-val \
+  --data-dir data \
+  --output-dir results/smoke \
+  --max-questions 20 \
+  --retrieval-only \
+  --top-k 2 \
+  --verify-seed-order
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--split val\|test` | Dataset split to evaluate |
+| `--graphs-dir PATH` | Directory containing per-video `graph.json` files |
+| `--data-dir PATH` | Root data directory (must contain `NExT-GQA/`) |
+| `--output-dir PATH` | Output directory for JSONL and summary files |
+| `--retrieval-only` | Skip LLM answering; compute grounding metrics only |
+| `--top-k N` | Override seed retrieval budget for all conditions |
+| `--verify-seed-order` | Verify seed node IDs and `hit_at_seed_budget` are identical across all conditions |
+| `--node-types transcript+visual\|visual-only` | Node types included in grounding metrics (default: both) |
+| `--inspect-first-grounded` | Print alignment inspection for the first question with a graph and gold interval, then exit |
+| `--inspect-question VIDEO_ID:QID` | Print alignment inspection for a specific question, then exit |
+
+### Outputs
+
+All outputs are written under `--output-dir` and should not be committed:
+
+```text
+<output-dir>/
+  flat/detailed.jsonl      # per-question records for each condition
+  graph-1/detailed.jsonl
+  graph-2/detailed.jsonl
+  summary.json             # aggregate metrics across all conditions
+  summary.md               # human-readable report
+```
+
+### Metrics
+
+Grounding is evaluated on `TranscriptNode` and `VisualNode` only. `TopicNode` and
+`EntityNode` are excluded from localization metrics (they span the whole video or
+carry no fine-grained temporal annotation) but may still appear in the LLM
+answering context. The predicted interval is the span of the top-1 retrieved node;
+no global union span is used.
+
+Key retrieval recall metrics:
+
+| Metric | Definition |
+|--------|------------|
+| `hit_at_seed_budget` | Any of the top-`k` seed-only nodes hits gold (`k = --top-k`) |
+| `hit_beyond_seed_budget` | A hit exists beyond the seed budget (`hit_any AND NOT hit_at_seed_budget`) |
+| `hit_expanded_only` | A graph-expanded node hits gold after the seed budget misses; always 0 for flat |
+
+`--verify-seed-order` confirms that seed node IDs and `hit_at_seed_budget` are
+identical across flat / graph-1 / graph-2 for every question, validating the
+fair flat-vs-graph comparison.
+
 ## Repository Boundary
 
 This repo contains only the public QA evaluation pipeline. It depends on
