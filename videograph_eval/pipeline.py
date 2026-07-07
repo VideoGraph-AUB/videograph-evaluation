@@ -268,6 +268,37 @@ def _run_pipeline(
             except Exception as e:
                 logger.warning(f"  OCR failed (non-fatal) for {video_id}: {e}")
 
+    # Step 4b: GRL — graph reinforcement (critique -> targeted re-perception -> gated
+    # write-back). Enriches clip captions before summary synthesis; rebuild deferred.
+    grl_cfg = config.get("graph", {}).get("reinforcement", {})
+    if grl_cfg.get("enabled", False):
+        from videograph.graph.reinforce import reinforce_video_graph
+        try:
+            with _tracker_stage(tracker, "grl_reinforcement"):
+                reinforce_video_graph(
+                    str(output_dir),
+                    text_model=config.get("openai", {}).get("text_model", "gpt-4o"),
+                    vision_model=config.get("openai", {}).get("vision_model", "gpt-4o"),
+                    max_probes=int(grl_cfg.get("max_probes", 5)),
+                    frames_per_probe=int(grl_cfg.get("frames_per_probe", 8)),
+                    rebuild=False,
+                )
+        except Exception as e:
+            logger.warning(f"  GRL failed (non-fatal) for {video_id}: {e}")
+
+    # Step 4c: Multi-granularity — whole-video summary node (coarse level alongside
+    # event-granular clips; retrieval routes by similarity, serving both fine and
+    # holistic questions in one graph)
+    from videograph.visual.adaptive_processing import append_video_summary_node
+    try:
+        with _tracker_stage(tracker, "summary_node"):
+            append_video_summary_node(
+                str(output_dir),
+                model=config.get("openai", {}).get("text_model", "gpt-4o"),
+            )
+    except Exception as e:
+        logger.warning(f"  Summary node failed (non-fatal) for {video_id}: {e}")
+
     # Step 5: Build graph
     logger.info(f"  [5/5] Building graph: {video_id}")
     with _tracker_stage(tracker, "graph_building"):
