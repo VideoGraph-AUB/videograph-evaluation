@@ -43,6 +43,7 @@ class GraphAnswerSession:
         expansion_edge_types=None,
         persist_visual_channel_embeddings: bool = True,
         temperature: float = 0.0,
+        seed: int = 0,
         dataset: str = "",
     ):
         from videograph.graph.serialization import load_graph_json
@@ -65,6 +66,7 @@ class GraphAnswerSession:
         self.use_state_change_channel = use_state_change_channel
         self.expansion_edge_types = expansion_edge_types
         self.temperature = temperature
+        self.seed = seed
         self.dataset = dataset
 
     def retrieve(self, question: str) -> list:
@@ -181,6 +183,7 @@ Answer ({answer_range}):"""
             ],
             temperature=self.temperature,
             max_tokens=8,
+            seed=self.seed,
         )
 
         raw = response.choices[0].message.content.strip()
@@ -222,6 +225,7 @@ def answer_mc(
     expansion_edge_types=None,
     persist_visual_channel_embeddings: bool = True,
     temperature: float = 0.0,
+    seed: int = 0,
     dataset: str = "",
 ) -> dict:
     """
@@ -240,6 +244,7 @@ def answer_mc(
         expansion_edge_types: Optional edge-type override for expansion
         persist_visual_channel_embeddings: Whether to write missing visual sidecar embeddings
         temperature: Sampling temperature (0 for deterministic)
+        seed: Fixed seed for reproducible answers across runs (OpenAI best-effort)
         dataset: Dataset name (adds dataset-specific prompt hints)
 
     Returns:
@@ -266,6 +271,7 @@ def answer_mc(
         expansion_edge_types=expansion_edge_types,
         persist_visual_channel_embeddings=persist_visual_channel_embeddings,
         temperature=temperature,
+        seed=seed,
         dataset=dataset,
     )
     return session.answer(question, options, start_time=start_time)
