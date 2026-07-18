@@ -12,7 +12,7 @@ Depends on `videograph-core` for graph construction, retrieval, and answering.
 
 - **Python >= 3.10**
 - **FFmpeg** and **FFprobe** on `PATH` (required by `videograph-core` for video processing)
-- **OpenAI API key**
+- **OpenAI or OpenRouter API key**
 
 ## Install
 
@@ -23,8 +23,15 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ../videograph-core
 pip install -e .
-cp .env.example .env         # then set OPENAI_API_KEY
+cp .env.example .env         # then configure OpenAI or OpenRouter
 ```
+
+OpenRouter uses the same OpenAI SDK-compatible pipeline. Set
+`VIDEOGRAPH_API_PROVIDER=openrouter`, `OPENROUTER_API_KEY`, and optionally
+`OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-1` in `.env`. Existing
+OpenAI model names in the YAML configuration are translated automatically.
+Direct OpenAI remains available by setting `VIDEOGRAPH_API_PROVIDER=openai`
+and `OPENAI_API_KEY`.
 
 On a remote machine, install both packages from their paths or git URLs:
 

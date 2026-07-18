@@ -22,6 +22,7 @@ MODEL_PRICING = {
     "gpt-4o": {"input": 2.50, "output": 10.00},
     # Whisper
     "whisper-1": {"per_minute": 0.006},
+    "whisper-large-v3": {"per_minute": 0.0015},
     # Embeddings
     "text-embedding-3-small": {"input": 0.02, "output": 0.0},
 }
@@ -104,6 +105,7 @@ class TrackerStats:
 
 
 def _pricing_for_model(model: str) -> Optional[dict]:
+    model = model.split("/", 1)[-1]
     pricing = MODEL_PRICING.get(model)
     if pricing:
         return pricing

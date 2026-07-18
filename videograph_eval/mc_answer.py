@@ -11,8 +11,6 @@ import time
 import json
 from pathlib import Path
 
-from openai import OpenAI
-
 logger = logging.getLogger(__name__)
 
 EGOSCHEMA_CONTEXT = """Note: In this video, 'C' refers to the camera wearer (first-person view) and 'O' refers to another person."""
@@ -48,6 +46,7 @@ class GraphAnswerSession:
     ):
         from videograph.graph.serialization import load_graph_json
         from videograph.retrieval.graph_retrieval import GraphRetriever
+        from videograph.utils import get_openai_client, resolve_model_name
 
         self.graph_path = Path(graph_path)
         self.video_dir = self.graph_path.parent
@@ -58,8 +57,8 @@ class GraphAnswerSession:
             hybrid_alpha=hybrid_alpha,
             persist_visual_channel_embeddings=persist_visual_channel_embeddings,
         )
-        self.client = OpenAI()
-        self.text_model = text_model
+        self.client = get_openai_client()
+        self.text_model = resolve_model_name(text_model, "chat")
         self.top_k = top_k
         self.hop_expansion = hop_expansion
         self.allowed_node_types = allowed_node_types
