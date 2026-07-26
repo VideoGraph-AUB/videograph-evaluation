@@ -23,6 +23,76 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config" / "default.yaml"
 
 
+def resolve_retrieval_settings(config: dict) -> dict:
+    """Validate and normalize retrieval settings used by evaluation ablations."""
+    from videograph.graph.models import EdgeType, NodeType
+
+    section = config.get("retrieval", {})
+    if not isinstance(section, dict):
+        raise ValueError("retrieval must be a YAML mapping")
+
+    top_k = section.get("top_k", 10)
+    hop_expansion = section.get("hop_expansion", 2)
+    hybrid_alpha = section.get("hybrid_alpha", 0.7)
+    use_state_change_channel = section.get("use_state_change_channel", True)
+
+    if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k <= 0:
+        raise ValueError("retrieval.top_k must be a positive integer")
+    if (
+        isinstance(hop_expansion, bool)
+        or not isinstance(hop_expansion, int)
+        or hop_expansion < 0
+    ):
+        raise ValueError("retrieval.hop_expansion must be a non-negative integer")
+    if isinstance(hybrid_alpha, bool) or not isinstance(hybrid_alpha, (int, float)):
+        raise ValueError("retrieval.hybrid_alpha must be numeric")
+    hybrid_alpha = float(hybrid_alpha)
+    if not 0.0 <= hybrid_alpha <= 1.0:
+        raise ValueError("retrieval.hybrid_alpha must be between 0 and 1")
+    if not isinstance(use_state_change_channel, bool):
+        raise ValueError("retrieval.use_state_change_channel must be true or false")
+
+    return {
+        "top_k": top_k,
+        "hop_expansion": hop_expansion,
+        "hybrid_alpha": hybrid_alpha,
+        "allowed_node_types": _normalize_enum_list(
+            section.get("allowed_node_types"),
+            NodeType,
+            "retrieval.allowed_node_types",
+        ),
+        "use_state_change_channel": use_state_change_channel,
+        "expansion_edge_types": _normalize_enum_list(
+            section.get("expansion_edge_types"),
+            EdgeType,
+            "retrieval.expansion_edge_types",
+        ),
+    }
+
+
+def _normalize_enum_list(value, enum_type, field_name: str):
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be null or a YAML list")
+
+    normalized = []
+    for item in value:
+        raw = str(item).strip()
+        try:
+            member = enum_type(raw)
+        except ValueError:
+            try:
+                member = enum_type[raw.upper()]
+            except KeyError as exc:
+                valid = ", ".join(member.value for member in enum_type)
+                raise ValueError(
+                    f"Unsupported value {raw!r} in {field_name}; expected one of: {valid}"
+                ) from exc
+        normalized.append(member.value)
+    return normalized
+
+
 def load_config(config_path: Optional[str | Path] = None) -> dict:
     """Load the default configuration and merge an optional YAML overlay."""
     with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as handle:
@@ -362,6 +432,7 @@ def answer_questions(
     dataset_name: str = "",
     output_dir: Optional[str] = None,
     trace_records: Optional[list] = None,
+    read_only_graphs: bool = False,
 ) -> list:
     """
     Answer a list of MC questions using pre-built graphs.
@@ -381,10 +452,7 @@ def answer_questions(
     openai_config = config.get("openai", {})
     text_model = openai_config.get("text_model", "gpt-4o")
     qa_temperature = float(openai_config.get("temperature", 0.0))
-    retrieval_config = config.get("retrieval", {})
-    top_k = retrieval_config.get("top_k", 10)
-    hop_expansion = retrieval_config.get("hop_expansion", 2)
-    hybrid_alpha = float(retrieval_config.get("hybrid_alpha", 0.7))
+    retrieval = resolve_retrieval_settings(config)
 
     predictions = []
 
@@ -403,9 +471,13 @@ def answer_questions(
                 options=q.options,
                 graph_path=str(graph_path),
                 text_model=text_model,
-                top_k=top_k,
-                hop_expansion=hop_expansion,
-                hybrid_alpha=hybrid_alpha,
+                top_k=retrieval["top_k"],
+                hop_expansion=retrieval["hop_expansion"],
+                hybrid_alpha=retrieval["hybrid_alpha"],
+                allowed_node_types=retrieval["allowed_node_types"],
+                use_state_change_channel=retrieval["use_state_change_channel"],
+                expansion_edge_types=retrieval["expansion_edge_types"],
+                persist_visual_channel_embeddings=not read_only_graphs,
                 temperature=qa_temperature,
                 dataset=dataset_name,
             )
@@ -591,6 +663,7 @@ def evaluate_dataset(
     skip_processing: bool = False,
     cleanup: bool = False,
     max_parallel_vision: Optional[int] = None,
+    graphs_root: Optional[str | Path] = None,
 ) -> dict:
     """
     Evaluate a single dataset end-to-end.
@@ -605,6 +678,7 @@ def evaluate_dataset(
         skip_processing: Skip video processing, only run QA
         cleanup: Delete intermediate files after each video to save storage
         max_parallel_vision: Override for parallel vision workers
+        graphs_root: Read-only graph root containing a dataset subdirectory
 
     Returns:
         Dict with predictions, accuracy, and optional performance metrics
@@ -618,11 +692,20 @@ def evaluate_dataset(
     )
 
     output_dir = Path(output_dir)
-    graphs_dir = output_dir / "graphs" / dataset_name
+    if graphs_root is None:
+        graphs_dir = output_dir / "graphs" / dataset_name
+        graphs_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        if not skip_processing:
+            raise ValueError("graphs_root requires skip_processing=True")
+        graphs_dir = Path(graphs_root).expanduser().resolve() / dataset_name
+        if not graphs_dir.is_dir():
+            raise FileNotFoundError(
+                f"Source graph directory not found for {dataset_name}: {graphs_dir}"
+            )
     preds_file = output_dir / "predictions" / f"{dataset_name}.json"
     qa_trace_file = output_dir / "predictions" / f"{dataset_name}_qa_trace.md"
 
-    graphs_dir.mkdir(parents=True, exist_ok=True)
     preds_file.parent.mkdir(parents=True, exist_ok=True)
 
     videos_dir = Path(videos_dir)
@@ -635,6 +718,7 @@ def evaluate_dataset(
 
     # --- Phase 1: Process videos & build graphs ---
     video_stats = []
+    qa_stats = []
     failures = []
     
     # Check for existing failures to resume
@@ -765,14 +849,42 @@ def evaluate_dataset(
             "updated_at": datetime.now().isoformat()
         })
 
-        video_preds = answer_questions(
-            video_questions,
-            str(graphs_dir),
-            config,
-            dataset_name=dataset_name,
-            output_dir=None,  # Disable per-question tracking
-            trace_records=qa_traces,
-        )
+        if track_performance:
+            from videograph.cache.openai_cache import get_cache
+
+            from .tracker import APITracker
+
+            cache = get_cache()
+            cache.enabled = False
+            qa_tracker = APITracker()
+            try:
+                with qa_tracker, qa_tracker.stage("question_answering"):
+                    video_preds = answer_questions(
+                        video_questions,
+                        str(graphs_dir),
+                        config,
+                        dataset_name=dataset_name,
+                        output_dir=None,  # Disable per-question tracking
+                        trace_records=qa_traces,
+                        read_only_graphs=graphs_root is not None,
+                    )
+            finally:
+                cache.enabled = True
+
+            stats = qa_tracker.get_stats().to_dict()
+            stats["wall_time_s"] = qa_tracker.get_wall_time()
+            stats["video_id"] = video_id
+            qa_stats.append(stats)
+        else:
+            video_preds = answer_questions(
+                video_questions,
+                str(graphs_dir),
+                config,
+                dataset_name=dataset_name,
+                output_dir=None,  # Disable per-question tracking
+                trace_records=qa_traces,
+                read_only_graphs=graphs_root is not None,
+            )
 
         if not video_preds:
             continue
@@ -826,6 +938,11 @@ def evaluate_dataset(
         answer_times = [p["answer_time_s"] for p in valid_preds if p["answer_time_s"] > 0]
         result["performance"] = compute_performance_metrics(video_stats, answer_times)
         result["performance_video_stats"] = video_stats
+
+    if track_performance and qa_stats:
+        answer_times = [p["answer_time_s"] for p in valid_preds if p["answer_time_s"] > 0]
+        result["qa_performance"] = compute_performance_metrics(qa_stats, answer_times)
+        result["qa_performance_video_stats"] = qa_stats
 
     return result
 

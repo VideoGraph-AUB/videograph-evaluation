@@ -1,0 +1,9 @@
+ablation:
+  name: transcript_only
+
+retrieval:
+  allowed_node_types:
+    - TranscriptNode
+  use_state_change_channel: false
+  expansion_edge_types:
+    - TEMPORAL_NEXT

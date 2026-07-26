@@ -1,0 +1,6 @@
+ablation:
+  name: temporal_only_expansion
+
+retrieval:
+  expansion_edge_types:
+    - TEMPORAL_NEXT

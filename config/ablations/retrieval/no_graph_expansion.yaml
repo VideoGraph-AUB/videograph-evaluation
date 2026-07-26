@@ -1,0 +1,5 @@
+ablation:
+  name: no_graph_expansion
+
+retrieval:
+  hop_expansion: 0

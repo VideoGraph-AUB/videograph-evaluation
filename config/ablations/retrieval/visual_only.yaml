@@ -1,0 +1,9 @@
+ablation:
+  name: visual_only
+
+retrieval:
+  allowed_node_types:
+    - VisualNode
+  use_state_change_channel: true
+  expansion_edge_types:
+    - TEMPORAL_NEXT

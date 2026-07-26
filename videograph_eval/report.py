@@ -100,6 +100,9 @@ def generate_report(
             "**Evidence construction**: "
             + ("ON" if evidence_construction.get("enabled", True) else "OFF")
         )
+    ablation = results.get("_meta", {}).get("ablation")
+    if ablation:
+        lines.append(f"**Ablation**: {ablation}")
     lines.append("")
 
     # --- Accuracy Summary ---
@@ -169,11 +172,47 @@ def generate_report(
             counts.get("domain", {}),
         )
 
-    # --- Performance Metrics ---
+    # --- Question-Answering Performance ---
+    has_qa_performance = any(
+        results.get(k, {}).get("qa_performance") for k in ordered
+    )
+
+    if has_qa_performance:
+        lines.append("## Question-Answering Performance")
+        lines.append("")
+        lines.append(
+            "| Dataset | Questions | Videos | API Calls | Total Cost (USD) | "
+            "Total Wall Time (s) | Avg Answer Time/Question (s) |"
+        )
+        lines.append(
+            "|---------|----------:|-------:|----------:|-----------------:|"
+            "--------------------:|-----------------------------:|"
+        )
+        for dataset_key in ordered:
+            ds = results.get(dataset_key, {})
+            perf = ds.get("qa_performance", {})
+            if perf:
+                lines.append(
+                    f"| {dataset_key}"
+                    f" | {ds.get('total_predictions', 0)}"
+                    f" | {perf.get('sample_videos', 0)}"
+                    f" | {perf.get('total_api_calls', 0)}"
+                    f" | ${perf.get('total_cost_usd', 0):.4f}"
+                    f" | {perf.get('total_wall_time_s', 0):.1f}"
+                    f" | {perf.get('avg_answer_time_per_question_s', 0):.3f} |"
+                )
+        lines.append("")
+        lines.append(
+            "Question-answering cost includes retrieval embeddings and answer-model "
+            "calls made during this run."
+        )
+        lines.append("")
+
+    # --- Graph-Construction Performance ---
     has_performance = any(results.get(k, {}).get("performance") for k in ordered)
 
     if has_performance:
-        lines.append("## Performance Metrics")
+        lines.append("## Graph-Construction Performance")
         lines.append("")
         lines.append("| Dataset | Sample Videos | Total API Calls | Avg Calls/Video | Total Cost (USD) | Avg Cost/Video (USD) | Avg Construction Wall Time/Video (s) | Avg Answer Time/Question (s) |")
         lines.append("|---------|--------------:|----------------:|----------------:|-----------------:|---------------------:|-------------------------------------:|----------------------------:|")
@@ -192,7 +231,7 @@ def generate_report(
                     f" | {perf.get('avg_answer_time_per_question_s', 0):.3f} |"
                 )
         lines.append("")
-        lines.append("Performance cost uses tracked OpenAI API calls during graph construction. Construction wall time is measured end-to-end per video and is distinct from summed API call latency.")
+        lines.append("Performance cost uses tracked model API calls during graph construction. Construction wall time is measured end-to-end per video and is distinct from summed API call latency.")
         lines.append("")
         lines.append("")
 

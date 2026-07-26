@@ -187,6 +187,7 @@ Options:
 | `--config PATH` | YAML overlay merged onto `config/default.yaml` |
 | `--max-videos N` | Limit videos per dataset (for debugging) |
 | `--skip-processing` | Skip graph building, only run QA on existing graphs |
+| `--graphs-dir PATH` | Read-only graph root to reuse with `--skip-processing` |
 | `--cleanup` | Delete intermediate files (frames, clips, audio) after each video |
 | `--track-performance` | Disable cache and track API calls, cost, and timing |
 | `--max-parallel-vision N` | Override parallel workers for vision captioning/OCR |
@@ -220,13 +221,57 @@ python -m videograph_eval.run \
 The OFF arm must not share an output directory with EGC-ON because graph
 artifacts differ at construction time.
 
+### Retrieval Ablations
+
+Retrieval ablations reuse a single set of EGC-ON graphs and change only the
+question-time retrieval policy. `--graphs-dir` must point to a graph root with
+the same layout produced by the evaluator:
+
+```text
+<graphs-dir>/<dataset>/<video_id>/graph.json
+```
+
+The source is treated as read-only. Predictions, traces, the effective
+configuration, results, and reports are written to `--output-dir`; graph
+artifacts are not copied there.
+
+| Preset | Retrieval policy |
+|--------|------------------|
+| `full.yaml` | Current complete retrieval policy; controlled baseline |
+| `no_graph_expansion.yaml` | Seed retrieval without graph-hop expansion |
+| `flat.yaml` | Transcript and visual seed retrieval only; no state-change channel |
+| `transcript_only.yaml` | Transcript evidence with temporal expansion |
+| `visual_only.yaml` | Visual evidence with state-change retrieval and temporal expansion |
+| `temporal_only_expansion.yaml` | Full seed retrieval; expand only `TEMPORAL_NEXT` edges |
+| `alignment_only_expansion.yaml` | Full seed retrieval; expand only `ALIGNED_TO` edges |
+
+Run each preset in a fresh output directory. The full control must also be
+rerun in the same experiment batch because hosted model outputs can vary over
+time.
+
+```bash
+python -m videograph_eval.run \
+  --data-dir /workspace/data \
+  --graphs-dir /workspace/results/nextqa_AAAI_floating_gpt4o/graphs \
+  --output-dir /workspace/results/ablations/nextqa/retrieval_full \
+  --datasets nextqa-val \
+  --version AAAI-retrieval-full \
+  --config config/ablations/retrieval/full.yaml \
+  --skip-processing \
+  --track-performance
+```
+
+Replace the preset, output directory, and version label for each arm. The same
+command works for Video-MME medium by selecting `video-mme-medium` and using
+the graph root from its EGC-ON run.
+
 ## Outputs
 
 Results are written under `--output-dir`:
 
 ```text
 <output-dir>/
-  graphs/<dataset>/<video_id>/   # graph.json + embeddings.json per video
+  graphs/<dataset>/<video_id>/   # graph artifacts unless --graphs-dir is used
   predictions/<dataset>.json     # per-question predictions
   predictions/<dataset>_qa_trace.md  # detailed QA trace with retrieval context
   effective_config.yaml              # exact merged run configuration

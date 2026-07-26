@@ -1,0 +1,6 @@
+ablation:
+  name: alignment_only_expansion
+
+retrieval:
+  expansion_edge_types:
+    - ALIGNED_TO

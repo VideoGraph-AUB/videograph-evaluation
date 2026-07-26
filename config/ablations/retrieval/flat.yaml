@@ -1,0 +1,10 @@
+ablation:
+  name: flat_retrieval
+
+retrieval:
+  hop_expansion: 0
+  allowed_node_types:
+    - TranscriptNode
+    - VisualNode
+  use_state_change_channel: false
+  expansion_edge_types: []

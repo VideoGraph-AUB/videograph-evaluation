@@ -5,7 +5,11 @@ import unittest
 from pathlib import Path
 
 from videograph.config_loader import resolve_evidence_construction
-from videograph_eval.pipeline import load_config, save_effective_config
+from videograph_eval.pipeline import (
+    load_config,
+    resolve_retrieval_settings,
+    save_effective_config,
+)
 from videograph_eval.report import generate_report
 
 
@@ -48,13 +52,87 @@ class EvaluationConfigurationTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 save_effective_config(changed, temp_dir)
 
+    def test_retrieval_ablation_presets(self) -> None:
+        presets_dir = (
+            Path(__file__).resolve().parents[1]
+            / "config"
+            / "ablations"
+            / "retrieval"
+        )
+        expected = {
+            "full.yaml": (1, None, True, None),
+            "no_graph_expansion.yaml": (0, None, True, None),
+            "flat.yaml": (
+                0,
+                ["TranscriptNode", "VisualNode"],
+                False,
+                [],
+            ),
+            "transcript_only.yaml": (
+                1,
+                ["TranscriptNode"],
+                False,
+                ["TEMPORAL_NEXT"],
+            ),
+            "visual_only.yaml": (
+                1,
+                ["VisualNode"],
+                True,
+                ["TEMPORAL_NEXT"],
+            ),
+            "temporal_only_expansion.yaml": (
+                1,
+                None,
+                True,
+                ["TEMPORAL_NEXT"],
+            ),
+            "alignment_only_expansion.yaml": (
+                1,
+                None,
+                True,
+                ["ALIGNED_TO"],
+            ),
+        }
+
+        for filename, values in expected.items():
+            with self.subTest(filename=filename):
+                settings = resolve_retrieval_settings(load_config(presets_dir / filename))
+                self.assertEqual(
+                    (
+                        settings["hop_expansion"],
+                        settings["allowed_node_types"],
+                        settings["use_state_change_channel"],
+                        settings["expansion_edge_types"],
+                    ),
+                    values,
+                )
+
+    def test_retrieval_settings_reject_unknown_node_type(self) -> None:
+        config = load_config()
+        config["retrieval"]["allowed_node_types"] = ["UnknownNode"]
+
+        with self.assertRaisesRegex(ValueError, "Unsupported value"):
+            resolve_retrieval_settings(config)
+
     def test_report_records_egc_status(self) -> None:
         results = {
             "_meta": {
                 "evidence_construction": {
                     "enabled": False,
-                }
-            }
+                },
+                "ablation": "flat_retrieval",
+            },
+            "nextqa-val": {
+                "accuracy": {"overall": 0.5, "count": 2, "failed": 0},
+                "total_predictions": 2,
+                "qa_performance": {
+                    "sample_videos": 1,
+                    "total_api_calls": 4,
+                    "total_cost_usd": 0.0123,
+                    "total_wall_time_s": 3.5,
+                    "avg_answer_time_per_question_s": 1.25,
+                },
+            },
         }
         with tempfile.TemporaryDirectory() as temp_dir:
             report_path = Path(temp_dir) / "report.md"
@@ -62,6 +140,9 @@ class EvaluationConfigurationTests(unittest.TestCase):
             report = report_path.read_text(encoding="utf-8")
 
         self.assertIn("**Evidence construction**: OFF", report)
+        self.assertIn("**Ablation**: flat_retrieval", report)
+        self.assertIn("## Question-Answering Performance", report)
+        self.assertIn("| nextqa-val | 2 | 1 | 4 | $0.0123 | 3.5 | 1.250 |", report)
 
 
 if __name__ == "__main__":

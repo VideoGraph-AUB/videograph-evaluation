@@ -40,7 +40,12 @@ load_dotenv()
 
 from videograph_eval.datasets import load_egoschema, load_nextqa, load_video_mme
 from videograph.config_loader import resolve_evidence_construction
-from videograph_eval.pipeline import evaluate_dataset, load_config, save_effective_config
+from videograph_eval.pipeline import (
+    evaluate_dataset,
+    load_config,
+    resolve_retrieval_settings,
+    save_effective_config,
+)
 from videograph_eval.report import generate_report, save_results_json
 
 # Configure logging
@@ -120,6 +125,11 @@ def main():
         help="Skip video processing + graph building, only run QA",
     )
     parser.add_argument(
+        "--graphs-dir",
+        default=None,
+        help="Read-only graph root containing one subdirectory per dataset",
+    )
+    parser.add_argument(
         "--track-performance", action="store_true",
         help="Disable cache and track API calls, cost, and timing",
     )
@@ -140,21 +150,43 @@ def main():
 
     data_dir = Path(args.data_dir)
     output_dir = Path(args.output_dir)
+    graphs_root = (
+        Path(args.graphs_dir).expanduser().resolve()
+        if args.graphs_dir is not None
+        else None
+    )
 
     if not data_dir.exists():
         logger.error(f"Data directory not found: {data_dir}")
         sys.exit(1)
+    if graphs_root is not None and not args.skip_processing:
+        parser.error("--graphs-dir requires --skip-processing")
+    if graphs_root is not None and not graphs_root.is_dir():
+        parser.error(f"--graphs-dir does not exist or is not a directory: {graphs_root}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     config = load_config(args.config)
+    retrieval = resolve_retrieval_settings(config)
     effective_config_path = save_effective_config(config, output_dir)
     evidence_construction = resolve_evidence_construction(config)
+    ablation = config.get("ablation", {})
+    ablation_name = ablation.get("name") if isinstance(ablation, dict) else None
     default_vision_workers = int(config.get("processing", {}).get("max_parallel_vision", 5))
     effective_vision_workers = (
         args.max_parallel_vision
         if args.max_parallel_vision is not None
         else default_vision_workers
+    )
+    retrieval_nodes = (
+        retrieval["allowed_node_types"]
+        if retrieval["allowed_node_types"] is not None
+        else "all"
+    )
+    retrieval_edges = (
+        retrieval["expansion_edge_types"]
+        if retrieval["expansion_edge_types"] is not None
+        else "all"
     )
 
     logger.info("=" * 60)
@@ -164,9 +196,19 @@ def main():
     logger.info(f"  Output dir:   {output_dir}")
     logger.info(f"  Version:      {args.version}")
     logger.info(f"  Config:       {args.config or 'config/default.yaml'}")
+    logger.info(f"  Ablation:     {ablation_name or 'none'}")
     logger.info(
         f"  EGC:          {'ON' if evidence_construction['enabled'] else 'OFF'}"
     )
+    logger.info(
+        "  Retrieval:    "
+        f"top_k={retrieval['top_k']}, "
+        f"hops={retrieval['hop_expansion']}, "
+        f"nodes={retrieval_nodes}, "
+        f"state_change={retrieval['use_state_change_channel']}, "
+        f"edges={retrieval_edges}"
+    )
+    logger.info(f"  Source graphs: {graphs_root or 'output directory'}")
     logger.info(f"  Datasets:     {args.datasets}")
     logger.info(f"  Performance:  {'ON' if args.track_performance else 'OFF (cache enabled)'}")
     logger.info(f"  Max videos:   {args.max_videos or 'all'}")
@@ -219,6 +261,7 @@ def main():
             skip_processing=args.skip_processing,
             cleanup=args.cleanup,
             max_parallel_vision=args.max_parallel_vision,
+            graphs_root=graphs_root,
         )
 
         all_results[ds_name] = result
@@ -238,6 +281,8 @@ def main():
         "max_parallel_vision": effective_vision_workers,
         "config": str(effective_config_path),
         "evidence_construction": evidence_construction,
+        "ablation": ablation_name,
+        "source_graphs": str(graphs_root) if graphs_root is not None else None,
     }
 
     results_path = output_dir / "results.json"

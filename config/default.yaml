@@ -72,6 +72,9 @@ retrieval:
   top_k: 7
   hop_expansion: 1
   hybrid_alpha: 0.7
+  allowed_node_types: null
+  use_state_change_channel: true
+  expansion_edge_types: null
 
 processing:
   max_parallel_vision: 5
