@@ -90,6 +90,16 @@ class EGCPipelineTests(unittest.TestCase):
                 )
 
         ingest.assert_called_once()
+        ingest_config = ingest.call_args.kwargs["config"]
+        self.assertFalse(
+            ingest_config["evidence_construction"]["enabled"]
+        )
+        self.assertEqual(
+            ingest_config["video_ingestion"]["fixed_segmentation"][
+                "window_duration_s"
+            ],
+            10.0,
+        )
         self.assertFalse(transcribe.call_args.kwargs["filter_hallucinations"])
         self.assertFalse(analyze.call_args.kwargs["use_previous_clip_context"])
         self.assertFalse(ocr.call_args.kwargs["gate_on_readable_text"])

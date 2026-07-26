@@ -195,9 +195,10 @@ Options:
 
 The EGC-OFF preset disables all Evidence-Aware Graph Construction components
 while preserving the graph builder, retrieval configuration, answer prompt, and
-answer model. It uses ordinary scene-cut clips, uniform duration-based
-keyframes, unfiltered transcription, independent clip captioning, ungated OCR,
-and no targeted re-perception or whole-video summary.
+answer model. It replaces adaptive segmentation with non-overlapping 10-second
+windows, uses uniform duration-based keyframes, keeps unfiltered transcription,
+captions clips independently, runs ungated OCR, and omits targeted re-perception
+and the whole-video summary. A final window shorter than 10 seconds is retained.
 
 Always use a fresh output directory. The evaluator writes the merged
 configuration to `effective_config.yaml` and refuses to resume when that file

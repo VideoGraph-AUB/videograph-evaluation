@@ -22,6 +22,10 @@ class EvaluationConfigurationTests(unittest.TestCase):
         resolved = resolve_evidence_construction(config)
 
         self.assertEqual(config["retrieval"]["top_k"], 7)
+        self.assertEqual(
+            config["video_ingestion"]["fixed_segmentation"]["window_duration_s"],
+            10.0,
+        )
         self.assertFalse(resolved["enabled"])
         self.assertTrue(all(not value for value in resolved.values()))
 

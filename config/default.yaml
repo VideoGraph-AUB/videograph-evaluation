@@ -7,6 +7,7 @@ openai:
 
 evidence_construction:
   enabled: true
+  adaptive_segmentation: true
   motion_event_refinement: true
   hybrid_keyframes: true
   transcript_filtering: true
@@ -16,6 +17,8 @@ evidence_construction:
   whole_video_summary: true
 
 video_ingestion:
+  fixed_segmentation:
+    window_duration_s: 10.0
   scene_detection:
     adaptive_threshold: 0.5
     min_scene_len_s: 2.5
