@@ -1,9 +1,19 @@
 openai:
-  text_model: "gpt-4o-2024-08-06"
-  vision_model: "gpt-4o-2024-08-06"
+  text_model: "gpt-4o"
+  vision_model: "gpt-4o"
   transcription_model: "whisper-1"
   embedding_model: "text-embedding-3-small"
   temperature: 0.0
+
+evidence_construction:
+  enabled: true
+  motion_event_refinement: true
+  hybrid_keyframes: true
+  transcript_filtering: true
+  cross_clip_continuity: true
+  ocr_gating: true
+  targeted_reperception: true
+  whole_video_summary: true
 
 video_ingestion:
   scene_detection:
@@ -35,6 +45,10 @@ video_ingestion:
 transcription:
   language: null
   timestamp_granularity: "segment"
+  filter_hallucinations: true
+  no_speech_threshold: 0.6
+  logprob_threshold: -1.0
+  compression_ratio_threshold: 2.4
 
 visual:
   ocr_enabled: true

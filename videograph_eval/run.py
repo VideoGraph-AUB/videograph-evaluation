@@ -31,6 +31,7 @@ Usage:
 
 import argparse
 import logging
+import sys
 import time
 from pathlib import Path
 
@@ -38,7 +39,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from videograph_eval.datasets import load_egoschema, load_nextqa, load_video_mme
-from videograph_eval.pipeline import evaluate_dataset, load_config
+from videograph.config_loader import resolve_evidence_construction
+from videograph_eval.pipeline import evaluate_dataset, load_config, save_effective_config
 from videograph_eval.report import generate_report, save_results_json
 
 # Configure logging
@@ -104,6 +106,11 @@ def main():
         help="Version label for the report (default: Unspecified)",
     )
     parser.add_argument(
+        "--config",
+        default=None,
+        help="YAML overlay merged onto config/default.yaml",
+    )
+    parser.add_argument(
         "--datasets", nargs="+", default=ALL_DATASETS,
         choices=ALL_DATASETS,
         help="Datasets to evaluate (default: all)",
@@ -140,7 +147,9 @@ def main():
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    config = load_config()
+    config = load_config(args.config)
+    effective_config_path = save_effective_config(config, output_dir)
+    evidence_construction = resolve_evidence_construction(config)
     default_vision_workers = int(config.get("processing", {}).get("max_parallel_vision", 5))
     effective_vision_workers = (
         args.max_parallel_vision
@@ -154,6 +163,10 @@ def main():
     logger.info(f"  Data dir:     {data_dir}")
     logger.info(f"  Output dir:   {output_dir}")
     logger.info(f"  Version:      {args.version}")
+    logger.info(f"  Config:       {args.config or 'config/default.yaml'}")
+    logger.info(
+        f"  EGC:          {'ON' if evidence_construction['enabled'] else 'OFF'}"
+    )
     logger.info(f"  Datasets:     {args.datasets}")
     logger.info(f"  Performance:  {'ON' if args.track_performance else 'OFF (cache enabled)'}")
     logger.info(f"  Max videos:   {args.max_videos or 'all'}")
@@ -223,6 +236,8 @@ def main():
         "track_performance": args.track_performance,
         "max_videos": args.max_videos,
         "max_parallel_vision": effective_vision_workers,
+        "config": str(effective_config_path),
+        "evidence_construction": evidence_construction,
     }
 
     results_path = output_dir / "results.json"

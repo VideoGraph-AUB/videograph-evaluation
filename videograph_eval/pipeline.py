@@ -16,16 +16,47 @@ from typing import Optional
 
 import yaml
 
+from videograph.config_loader import deep_update, resolve_evidence_construction
+
 logger = logging.getLogger(__name__)
 
+DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config" / "default.yaml"
 
-def load_config() -> dict:
-    """Load VideoGraph configuration."""
-    config_path = Path(__file__).parent.parent / "config" / "default.yaml"
-    if config_path.exists():
-        with open(config_path, "r") as f:
-            return yaml.safe_load(f)
-    return {}
+
+def load_config(config_path: Optional[str | Path] = None) -> dict:
+    """Load the default configuration and merge an optional YAML overlay."""
+    with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+
+    if config_path is None:
+        return config
+
+    overlay_path = Path(config_path).expanduser().resolve()
+    if not overlay_path.is_file():
+        raise FileNotFoundError(f"Configuration file not found: {overlay_path}")
+    with open(overlay_path, "r", encoding="utf-8") as handle:
+        overlay = yaml.safe_load(handle) or {}
+    if not isinstance(overlay, dict):
+        raise ValueError(f"Configuration root must be a YAML mapping: {overlay_path}")
+    return deep_update(config, overlay)
+
+
+def save_effective_config(config: dict, output_dir: str | Path) -> Path:
+    """Persist the exact merged configuration and protect resumed runs from drift."""
+    output_path = Path(output_dir) / "effective_config.yaml"
+    if output_path.exists():
+        with open(output_path, "r", encoding="utf-8") as handle:
+            existing = yaml.safe_load(handle) or {}
+        if existing != config:
+            raise RuntimeError(
+                "The output directory contains a different effective_config.yaml. "
+                "Use a new output directory to avoid mixing incompatible artifacts."
+            )
+        return output_path
+
+    with open(output_path, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(config, handle, sort_keys=False)
+    return output_path
 
 
 def process_video(
@@ -206,6 +237,7 @@ def _run_pipeline(
     visual_config = config.get("visual", {})
     trans_config = config.get("transcription", {})
     processing_config = config.get("processing", {})
+    evidence_construction = resolve_evidence_construction(config)
     openai_temperature = float(openai_config.get("temperature", 0.0))
     vision_workers = (
         max_parallel_vision
@@ -239,6 +271,15 @@ def _run_pipeline(
                 model=config.get("openai", {}).get("transcription_model", "whisper-1"),
                 language=trans_config.get("language"),
                 timestamp_granularity=trans_config.get("timestamp_granularity", "segment"),
+                filter_hallucinations=(
+                    evidence_construction["transcript_filtering"]
+                    and trans_config.get("filter_hallucinations", True)
+                ),
+                no_speech_threshold=trans_config.get("no_speech_threshold", 0.6),
+                logprob_threshold=trans_config.get("logprob_threshold", -1.0),
+                compression_ratio_threshold=trans_config.get(
+                    "compression_ratio_threshold", 2.4
+                ),
             )
     else:
         logger.warning(f"  Audio file not found for {video_id}, skipping transcription")
@@ -253,6 +294,7 @@ def _run_pipeline(
             temperature=openai_temperature,
             max_parallel=vision_workers,
             append_state_change_to_description=append_state_change_to_description,
+            use_previous_clip_context=evidence_construction["cross_clip_continuity"],
         )
 
     # Step 4: OCR
@@ -264,40 +306,48 @@ def _run_pipeline(
                     str(output_dir),
                     model=openai_config.get("vision_model", "gpt-4o"),
                     max_parallel=vision_workers,
+                    gate_on_readable_text=evidence_construction["ocr_gating"],
                 )
             except Exception as e:
                 logger.warning(f"  OCR failed (non-fatal) for {video_id}: {e}")
 
-    # Step 4b: GRL — graph reinforcement (critique -> targeted re-perception -> gated
-    # write-back). Enriches clip captions before summary synthesis; rebuild deferred.
-    grl_cfg = config.get("graph", {}).get("reinforcement", {})
-    if grl_cfg.get("enabled", False):
+    # Step 4b: EGC targeted re-perception with gated evidence write-back.
+    reinforcement_config = config.get("graph", {}).get("reinforcement", {})
+    if (
+        evidence_construction["targeted_reperception"]
+        and reinforcement_config.get("enabled", False)
+    ):
         from videograph.graph.reinforce import reinforce_video_graph
         try:
-            with _tracker_stage(tracker, "grl_reinforcement"):
+            with _tracker_stage(tracker, "egc_targeted_reperception"):
                 reinforce_video_graph(
                     str(output_dir),
                     text_model=config.get("openai", {}).get("text_model", "gpt-4o"),
                     vision_model=config.get("openai", {}).get("vision_model", "gpt-4o"),
-                    max_probes=int(grl_cfg.get("max_probes", 5)),
-                    frames_per_probe=int(grl_cfg.get("frames_per_probe", 8)),
+                    max_probes=int(reinforcement_config.get("max_probes", 5)),
+                    frames_per_probe=int(
+                        reinforcement_config.get("frames_per_probe", 8)
+                    ),
                     rebuild=False,
                 )
         except Exception as e:
-            logger.warning(f"  GRL failed (non-fatal) for {video_id}: {e}")
+            logger.warning(
+                f"  EGC targeted re-perception failed (non-fatal) for {video_id}: {e}"
+            )
 
     # Step 4c: Multi-granularity — whole-video summary node (coarse level alongside
     # event-granular clips; retrieval routes by similarity, serving both fine and
     # holistic questions in one graph)
-    from videograph.visual.adaptive_processing import append_video_summary_node
-    try:
-        with _tracker_stage(tracker, "summary_node"):
-            append_video_summary_node(
-                str(output_dir),
-                model=config.get("openai", {}).get("text_model", "gpt-4o"),
-            )
-    except Exception as e:
-        logger.warning(f"  Summary node failed (non-fatal) for {video_id}: {e}")
+    if evidence_construction["whole_video_summary"]:
+        from videograph.visual.adaptive_processing import append_video_summary_node
+        try:
+            with _tracker_stage(tracker, "summary_node"):
+                append_video_summary_node(
+                    str(output_dir),
+                    model=config.get("openai", {}).get("text_model", "gpt-4o"),
+                )
+        except Exception as e:
+            logger.warning(f"  Summary node failed (non-fatal) for {video_id}: {e}")
 
     # Step 5: Build graph
     logger.info(f"  [5/5] Building graph: {video_id}")

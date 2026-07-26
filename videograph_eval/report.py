@@ -94,6 +94,12 @@ def generate_report(
     lines.append("")
     lines.append(f"**Generated**: {datetime.now().isoformat()}")
     lines.append(f"**Version**: {version}")
+    evidence_construction = results.get("_meta", {}).get("evidence_construction")
+    if isinstance(evidence_construction, dict):
+        lines.append(
+            "**Evidence construction**: "
+            + ("ON" if evidence_construction.get("enabled", True) else "OFF")
+        )
     lines.append("")
 
     # --- Accuracy Summary ---

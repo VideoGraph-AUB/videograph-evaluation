@@ -184,11 +184,40 @@ Options:
 | Flag | Description |
 |------|-------------|
 | `--datasets` | Subset of datasets to run (default: all) |
+| `--config PATH` | YAML overlay merged onto `config/default.yaml` |
 | `--max-videos N` | Limit videos per dataset (for debugging) |
 | `--skip-processing` | Skip graph building, only run QA on existing graphs |
 | `--cleanup` | Delete intermediate files (frames, clips, audio) after each video |
 | `--track-performance` | Disable cache and track API calls, cost, and timing |
 | `--max-parallel-vision N` | Override parallel workers for vision captioning/OCR |
+
+### EGC-OFF Ablation
+
+The EGC-OFF preset disables all Evidence-Aware Graph Construction components
+while preserving the graph builder, retrieval configuration, answer prompt, and
+answer model. It uses ordinary scene-cut clips, uniform duration-based
+keyframes, unfiltered transcription, independent clip captioning, ungated OCR,
+and no targeted re-perception or whole-video summary.
+
+Always use a fresh output directory. The evaluator writes the merged
+configuration to `effective_config.yaml` and refuses to resume when that file
+does not match the requested configuration.
+
+To run the EGC-OFF ablation with the models in `config/default.yaml`:
+
+```bash
+python -m videograph_eval.run \
+  --data-dir /workspace/data \
+  --output-dir /workspace/results/nextqa_egc_off \
+  --datasets nextqa-val \
+  --version EGC-off \
+  --config config/ablations/egc_off.yaml \
+  --track-performance \
+  --cleanup
+```
+
+The OFF arm must not share an output directory with EGC-ON because graph
+artifacts differ at construction time.
 
 ## Outputs
 
@@ -199,6 +228,7 @@ Results are written under `--output-dir`:
   graphs/<dataset>/<video_id>/   # graph.json + embeddings.json per video
   predictions/<dataset>.json     # per-question predictions
   predictions/<dataset>_qa_trace.md  # detailed QA trace with retrieval context
+  effective_config.yaml              # exact merged run configuration
   results.json                   # combined accuracy and performance metrics
   report.md                      # human-readable summary report
 ```
