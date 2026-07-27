@@ -221,6 +221,28 @@ python -m videograph_eval.run \
 The OFF arm must not share an output directory with EGC-ON because graph
 artifacts differ at construction time.
 
+### Paired EGC Analysis
+
+The paper's controlled EGC comparison aligns the complete EGC-ON and EGC-OFF
+prediction files by `(video_id, qid)`. The analysis reports question-level
+discordance counts, an exact two-sided McNemar test, a video-level exact sign
+test, and a paired cluster bootstrap that resamples videos with all of their
+questions.
+
+```bash
+python analyze_egc_ablation.py \
+  --on-predictions /results/egc_on/predictions/nextqa-val.json \
+  --off-predictions /results/egc_off/predictions/nextqa-val.json \
+  --output-dir /results/egc_paired_analysis \
+  --bootstrap-samples 50000 \
+  --seed 0
+```
+
+The command requires identical question sets and matching ground-truth labels;
+it fails rather than silently intersecting incomplete runs. It writes
+`paired_analysis.json` and `paired_analysis.md`. The JSON report records the
+input paths and SHA-256 hashes so the exact analyzed runs can be identified.
+
 ### Retrieval Ablations
 
 Retrieval ablations reuse a single set of EGC-ON graphs and change only the
@@ -278,6 +300,14 @@ Results are written under `--output-dir`:
   results.json                   # combined accuracy and performance metrics
   report.md                      # human-readable summary report
 ```
+
+For benchmark experiments, `config/default.yaml` merged with the optional
+`--config` overlay is the authoritative parameter specification. Every run
+writes the complete merged configuration to `effective_config.yaml`; execution
+options and the effective vision-worker count are also recorded in
+`results.json`. Together with the core paper-to-code map, the runner, metric
+modules, and paired-analysis utility cover preprocessing, execution, and
+analysis for the reported experiments.
 
 ## NExT-GQA Grounding Evaluation
 
